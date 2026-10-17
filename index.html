@@ -7,7 +7,7 @@
 <div class="tabs" role="tablist" aria-label="AQS 화면 선택"><button class="tab active" data-tab="quests">📋 Quest</button><button class="tab" data-tab="achievements">🏅 Achievement</button><button class="tab" data-tab="secrets">🔮 Secret</button></div><div id="content" aria-live="polite"></div><p class="notice" id="notice">일일 퀘스트는 한국 시간 0시에 새로 시작해요. 기록은 이 브라우저에 먼저 저장되며, 계정 연결이 가능한 경우 클라우드에도 동기화됩니다.</p></main><footer>Formwheel · AQS v1.0</footer>
 <script type="module">
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-import {getAuth,onAuthStateChanged,signInAnonymously} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import {getDatabase,ref,get,set} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js';
 const config={apiKey:"AIzaSyBreTSe1m0-xlbF4aupnU5isRZCihR25IE",authDomain:"formwheel.firebaseapp.com",databaseURL:"https://formwheel-default-rtdb.firebaseio.com",projectId:"formwheel",storageBucket:"formwheel.firebasestorage.app",messagingSenderId:"431583088241",appId:"1:431583088241:web:74e0e34ea1e3e1170c55d0",measurementId:"G-T372YXDF8D"};
 const app=initializeApp(config),auth=getAuth(app),db=getDatabase(app);
@@ -40,5 +40,5 @@ window.FormwheelAQS={recordProjectVisit:registerProject,recordEvent:(type,detail
 function consumeEvents(){const events=safeParse(localStorage.getItem(EVENT_KEY));if(!Array.isArray(events))return;for(const e of events.slice(-100)){if(e&&e.type==='project_visit'&&typeof e.project==='string')registerProject(e.project)}localStorage.removeItem(EVENT_KEY)}
 window.addEventListener('storage',e=>{if(e.key===EVENT_KEY)consumeEvents()});
 loadLocal();consumeEvents();syncAchievements();save();render();
-onAuthStateChanged(auth,async user=>{if(!user){els('saveStatus').textContent='이 기기에 저장됨';return}uid=user.uid;try{const snap=await get(ref(db,'aqs/v1/users/'+uid));const remote=snap.val();if(remote&&remote.version===1&&remote.lastUpdated>state.lastUpdated){state={...defaultState(),...remote};localStorage.setItem(KEY,JSON.stringify(state))}cloudEnabled=true;syncAchievements();save();render()}catch{cloudEnabled=false;els('saveStatus').textContent='이 기기에 저장됨'}});
+onAuthStateChanged(auth,async user=>{if(!user){els('saveStatus').textContent='이 기기에 저장됨';return}uid=user.uid;try{const snap=await get(ref(db,'aqs/v1/users/'+uid));const remote=snap.val();if(remote&&remote.version===1){state={...defaultState(),...remote,claimed:{...remote.claimed,...state.claimed},unlocked:{...remote.unlocked,...state.unlocked},secrets:{...remote.secrets,...state.secrets},visitedProjects:{...remote.visitedProjects,...state.visitedProjects},daily:{...remote.daily,...state.daily},xp:Math.max(remote.xp||0,state.xp||0)};localStorage.setItem(KEY,JSON.stringify(state))}cloudEnabled=true;syncAchievements();save();render()}catch{cloudEnabled=false;els('saveStatus').textContent='이 기기에 저장됨'}});
 </script></body></html>
