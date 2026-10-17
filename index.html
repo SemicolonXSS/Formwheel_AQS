@@ -30,7 +30,7 @@ function save(){state.lastUpdated=Date.now();localStorage.setItem(KEY,JSON.strin
 function syncSpotlightXP(){
  const visits=safeParse(localStorage.getItem('formwheel.spotlight.rewards.v1'));
  const missions=safeParse(localStorage.getItem('formwheel.spotlight.missions.v1'));
- const dates=Array.isArray(visits?.claimed)?[...new Set(visits.claimed.filter(d=>/^\\d{4}-\\d{2}-\\d{2}$/.test(d)&&d<=dateKey()))].sort():[];
+ const dates=Array.isArray(visits?.claimed)?[...new Set(visits.claimed.filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&d<=dateKey()))].sort():[];
  const earned=state.spotlightRewards||{};
  let changed=false,streak=0,prev='';
  for(const day of dates){
@@ -43,7 +43,7 @@ function syncSpotlightXP(){
  }
  if(missions&&typeof missions==='object'&&!Array.isArray(missions))
    for(const [token,ok] of Object.entries(missions)){
-     if(ok!==true||!/^\\d{4}-\\d{2}-\\d{2}:(Reflex|Cook|Decode|Clicker|Time|Marble|GCrown)$/.test(token)||token.slice(0,10)>dateKey())continue;
+     if(ok!==true||!/^\d{4}-\d{2}-\d{2}:(Reflex|Cook|Decode|Clicker|Time|Marble|GCrown)$/.test(token)||token.slice(0,10)>dateKey())continue;
      const id='mission:'+token;
      if(!earned[id]){earned[id]=20;state.xp+=20;changed=true;}
    }
