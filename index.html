@@ -18,7 +18,7 @@ const HUB_SECRET_KEY='formwheel.secret.v1',HUB_SECRET_TOTAL=38;
 function hubSecrets(){try{const v=JSON.parse(localStorage.getItem(HUB_SECRET_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch{return {}}}
 function hubSecretCount(){return Object.keys(hubSecrets()).filter(k=>Number.isInteger(+k)&&+k>=1&&+k<=HUB_SECRET_TOTAL).length}
 const FOLD_KEY='formwheel.aqs.catalog.fold.v1';let foldState={...{recent:true,challenge:true,new:true},...(JSON.parse(localStorage.getItem(FOLD_KEY)||'null')||{})};
-const defaultState=()=>({version:1,xp:0,claimed:{},unlocked:{},secrets:{},visitedProjects:{},daily:{},featuredId:'',identity:'',identitySeen:{},nullUnlocked:false,lastUpdated:0});
+const defaultState=()=>({version:1,xp:0,claimed:{},unlocked:{},secrets:{},visitedProjects:{},daily:{},featuredId:'',identity:'',identitySeen:{},nullUnlocked:false,spotlightRewards:{},lastUpdated:0});
 let state=defaultState(),tab='quests',uid=null,saveTimer=null,cloudEnabled=false;
 const safeParse=(s)=>{try{return JSON.parse(s)}catch{return null}};
 const dateKey=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -26,6 +26,31 @@ const els=(id)=>document.getElementById(id);
 const escapeHtml=(s)=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function loadLocal(){const s=safeParse(localStorage.getItem(KEY));if(s&&s.version===1)state={...defaultState(),...s}}
 function save(){state.lastUpdated=Date.now();localStorage.setItem(KEY,JSON.stringify(state));els('saveStatus').textContent=cloudEnabled?'로컬 저장됨 · 동기화 중':'이 기기에 저장됨';clearTimeout(saveTimer);if(cloudEnabled&&uid)saveTimer=setTimeout(async()=>{try{await set(ref(db,'aqs/v1/users/'+uid),state);els('saveStatus').textContent='클라우드 동기화됨'}catch{cloudEnabled=false;els('saveStatus').textContent='이 기기에 저장됨'}},650)}
+// Spotlight uses the same github.io origin; import recorded rewards into AQS once per day/mission.
+function syncSpotlightXP(){
+ const visits=safeParse(localStorage.getItem('formwheel.spotlight.rewards.v1'));
+ const missions=safeParse(localStorage.getItem('formwheel.spotlight.missions.v1'));
+ const dates=Array.isArray(visits?.claimed)?[...new Set(visits.claimed.filter(d=>/^\\d{4}-\\d{2}-\\d{2}$/.test(d)&&d<=dateKey()))].sort():[];
+ const earned=state.spotlightRewards||{};
+ let changed=false,streak=0,prev='';
+ for(const day of dates){
+   const delta=Math.round((Date.parse(day+'T00:00:00Z')-Date.parse(prev+'T00:00:00Z'))/86400000);
+   streak=delta===1?streak+1:1;
+   const id='visit:'+day;
+   if(!earned[id]){earned[id]=10;state.xp+=10;changed=true;}
+   if(streak%3===0){const bonus='streak:'+day;if(!earned[bonus]){earned[bonus]=15;state.xp+=15;changed=true;}}
+   prev=day;
+ }
+ if(missions&&typeof missions==='object'&&!Array.isArray(missions))
+   for(const [token,ok] of Object.entries(missions)){
+     if(ok!==true||!/^\\d{4}-\\d{2}-\\d{2}:(Reflex|Cook|Decode|Clicker|Time|Marble|GCrown)$/.test(token)||token.slice(0,10)>dateKey())continue;
+     const id='mission:'+token;
+     if(!earned[id]){earned[id]=20;state.xp+=20;changed=true;}
+   }
+ state.spotlightRewards=earned;
+ if(changed)save();
+ return changed;
+}
 function levelFor(xp){return Math.floor(Math.sqrt(xp/100))+1}
 function unlock(id){if(state.unlocked[id])return;const a=achievements.find(x=>x.id===id);if(!a)return;state.unlocked[id]=Date.now();state.xp+=a.xp}
 function syncAchievements(){unlock('welcome');if(state.daily[dateKey()]?.checkin)unlock('daily');if(Object.keys(state.visitedProjects).length>=3)unlock('explorer');if(hubSecrets()[32])unlock('secret');if(state.identity)unlock('identity');if(hubSecretCount()>=2)unlock('twoSecrets');if(hubSecretCount()>=4)unlock('fourSecrets');if(hubSecretCount()===HUB_SECRET_TOTAL)unlock('allSecrets');if(Object.keys(state.visitedProjects).length>=5)unlock('fiveProjects');const c=Object.keys(state.claimed).length;if(c>=3)unlock('questsThree');if(c>=10)unlock('questsTen')}
@@ -75,7 +100,7 @@ const HUB_LABS=[
 ['마지막 괄호','코드는 다른 문맥 속에 숨어 있어요.','열린 것을 닫을 때 필요한 두 영어 단어가 있어.','CLOSE와 BRACE를 하이픈으로 연결해.']
 ];
 function render(){checkNullUnlock();syncAchievements();const lvl=levelFor(state.xp),low=100*(lvl-1)**2,high=100*lvl**2;els('level').textContent='LEVEL '+lvl;els('xpBar').style.width=(100*(state.xp-low)/(high-low))+'%';els('xpDetail').textContent=state.xp+' XP';els('nextDetail').textContent='다음 레벨까지 '+(high-state.xp)+' XP';els('achCount').textContent=Object.keys(state.unlocked).length+'/'+achievements.length;els('secretCount').textContent=hubSecretCount()+'/'+HUB_SECRET_TOTAL;els('questCount').textContent=questItems().filter(q=>state.claimed[dateKey()+':'+q.id]).length+'/'+questItems().length;document.querySelectorAll('.tab').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);b.setAttribute('aria-selected',String(b.dataset.tab===tab))});
-if(tab==='quests'){els('content').innerHTML='<div class="grid">'+questItems().map(q=>{const done=!!state.claimed[dateKey()+':'+q.id];return '<article class="card"><span class="pill">'+q.xp+' XP</span><h3>'+q.title+'</h3><p class="muted">'+q.desc+'</p><div class="progress"><div style="width:'+(100*q.count/q.target)+'%"></div></div><div class="row"><small>'+q.count+'/'+q.target+'</small><button class="btn" data-claim="'+q.id+'" '+(q.count<q.target||done?'disabled':'')+'>'+(done?'수령 완료':q.count===q.target?'보상 받기':'진행 중')+'</button></div></article>'}).join('')+'</div><p class="notice"><button class="btn outline" id="checkin" '+(state.daily[dateKey()]?.checkin?'disabled':'')+'>'+(state.daily[dateKey()]?.checkin?'✓ 오늘 출석 완료':'오늘 출석하기')+'</button></p>'}
+if(tab==='quests'){els('content').innerHTML='<section class="card" style="margin-bottom:14px"><h3>🌟 Spotlight XP 연동</h3><p class="muted">Spotlight 방문 +10 XP, 3일 연속 +15 XP, 미션 성공 +20 XP. 기록은 브라우저에서 AQS로 한 번만 반영됩니다.</p><p><a class="home" href="https://semicolonxss.github.io/Formwheel_Spotlight/">Spotlight로 이동 →</a></p></section><div class="grid">'+questItems().map(q=>{const done=!!state.claimed[dateKey()+':'+q.id];return '<article class="card"><span class="pill">'+q.xp+' XP</span><h3>'+q.title+'</h3><p class="muted">'+q.desc+'</p><div class="progress"><div style="width:'+(100*q.count/q.target)+'%"></div></div><div class="row"><small>'+q.count+'/'+q.target+'</small><button class="btn" data-claim="'+q.id+'" '+(q.count<q.target||done?'disabled':'')+'>'+(done?'수령 완료':q.count===q.target?'보상 받기':'진행 중')+'</button></div></article>'}).join('')+'</div><p class="notice"><button class="btn outline" id="checkin" '+(state.daily[dateKey()]?.checkin?'disabled':'')+'>'+(state.daily[dateKey()]?.checkin?'✓ 오늘 출석 완료':'오늘 출석하기')+'</button></p>'}
 else if(tab==='identity'){els('content').innerHTML='<section class="card"><h2>🪐 나의 Orbit Identity</h2><p class="muted">나만의 네 글자 단어를 선택해 보세요. 언제든 무료로 변경할 수 있고 XP·업적은 그대로 유지됩니다.</p><div class="identity-list">'+Object.entries(identities).map(([id,desc])=>'<button type="button" class="identity-card '+(state.identity===id?'chosen':'')+'" data-identity="'+id+'" '+(id==='NULL'&&!state.nullUnlocked?'disabled aria-label="잠긴 히든 Identity"':'')+' aria-pressed="'+(state.identity===id)+'"><b>'+(id==='NULL'&&!state.nullUnlocked?'????':id)+'</b><small>'+(id==='NULL'&&!state.nullUnlocked?'🔒 잠긴 Identity':desc)+'</small></button>').join('')+'</div><p class="notice">현재 Identity: <strong>'+(state.identity||'미선택')+'</strong> · <a href="https://semicolonxss.github.io/Formwheel_Quiz/">Quiz에서 사용하기 →</a></p></section>'}
 else if(tab==='achievements'){els('content').innerHTML='<section class="card" style="margin-bottom:14px"><h3>🌟 대표 업적 선택</h3><p class="muted">획득한 업적 하나를 Hub 프로필 사진 옆에 표시할 수 있어요.</p><select id="featuredChoice" class="secretInput" aria-label="대표 업적 선택"><option value="">선택 안 함</option>'+achievements.filter(a=>state.unlocked[a.id]).map(a=>'<option value="'+a.id+'" '+(state.featuredId===a.id?'selected':'')+'>'+a.name+'</option>').join('')+'</select> <button class="btn" id="saveFeatured">저장</button></section><div class="grid">'+achievements.map(a=>{const yes=!!state.unlocked[a.id];return '<article class="card"><span class="pill '+(a.rarity==='에픽'?'gold':!yes?'dark':'')+'">'+a.rarity+'</span><h3>'+(yes?'🏅 ':'🔒 ')+a.name+'</h3><p class="muted">'+a.desc+'</p><div class="row"><small>'+a.xp+' XP</small><strong>'+(yes?'획득 완료':'미획득')+'</strong></div></article>'}).join('')+'</div>'}
 else{renderHubSecrets()}
@@ -85,8 +110,8 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;re
 window.FormwheelAQS={recordProjectVisit:registerProject,recordEvent:(type,detail)=>{if(type==='project_visit')registerProject(detail?.project)}};
 // Cross-page projects under the same origin may append named visits to the shared event queue.
 function consumeEvents(){const events=safeParse(localStorage.getItem(EVENT_KEY));if(!Array.isArray(events))return;for(const e of events.slice(-100)){if(e&&e.type==='project_visit'&&typeof e.project==='string')registerProject(e.project)}localStorage.removeItem(EVENT_KEY)}
-window.addEventListener('storage',e=>{if(e.key===EVENT_KEY)consumeEvents();if(e.key===HUB_SECRET_KEY){syncAchievements();save();els('secretCount').textContent=hubSecretCount()+'/'+HUB_SECRET_TOTAL;els('achCount').textContent=Object.keys(state.unlocked).length+'/'+achievements.length;if(tab!=='secrets')render()}});
-loadLocal();consumeEvents();syncAchievements();save();render();
-onAuthStateChanged(auth,async user=>{if(!user){els('saveStatus').textContent='이 기기에 저장됨';return}uid=user.uid;try{const snap=await get(ref(db,'aqs/v1/users/'+uid));const remote=snap.val();if(remote&&remote.version===1){state={...defaultState(),...remote,claimed:{...remote.claimed,...state.claimed},unlocked:{...remote.unlocked,...state.unlocked},secrets:{...remote.secrets,...state.secrets},visitedProjects:{...remote.visitedProjects,...state.visitedProjects},daily:{...remote.daily,...state.daily},featuredId:state.featuredId||remote.featuredId||'',identity:(remote.lastUpdated||0)>(state.lastUpdated||0)?(remote.identity||''):(state.identity||remote.identity||''),identitySeen:{...remote.identitySeen,...state.identitySeen},nullUnlocked:!!(remote.nullUnlocked||state.nullUnlocked),xp:Math.max(remote.xp||0,state.xp||0)};localStorage.setItem(KEY,JSON.stringify(state))}cloudEnabled=true;syncAchievements();save();render()}catch{cloudEnabled=false;els('saveStatus').textContent='이 기기에 저장됨'}});
+window.addEventListener('storage',e=>{if(e.key===EVENT_KEY)consumeEvents();if(e.key==='formwheel.spotlight.rewards.v1'||e.key==='formwheel.spotlight.missions.v1'){if(syncSpotlightXP())render();}if(e.key===HUB_SECRET_KEY){syncAchievements();save();els('secretCount').textContent=hubSecretCount()+'/'+HUB_SECRET_TOTAL;els('achCount').textContent=Object.keys(state.unlocked).length+'/'+achievements.length;if(tab!=='secrets')render()}});
+loadLocal();syncSpotlightXP();consumeEvents();syncAchievements();save();render();
+onAuthStateChanged(auth,async user=>{if(!user){els('saveStatus').textContent='이 기기에 저장됨';return}uid=user.uid;try{const snap=await get(ref(db,'aqs/v1/users/'+uid));const remote=snap.val();if(remote&&remote.version===1){state={...defaultState(),...remote,claimed:{...remote.claimed,...state.claimed},unlocked:{...remote.unlocked,...state.unlocked},secrets:{...remote.secrets,...state.secrets},visitedProjects:{...remote.visitedProjects,...state.visitedProjects},daily:{...remote.daily,...state.daily},featuredId:state.featuredId||remote.featuredId||'',identity:(remote.lastUpdated||0)>(state.lastUpdated||0)?(remote.identity||''):(state.identity||remote.identity||''),identitySeen:{...remote.identitySeen,...state.identitySeen},nullUnlocked:!!(remote.nullUnlocked||state.nullUnlocked),spotlightRewards:{...remote.spotlightRewards,...state.spotlightRewards},xp:Math.max(remote.xp||0,state.xp||0)};localStorage.setItem(KEY,JSON.stringify(state))}cloudEnabled=true;syncSpotlightXP();syncAchievements();save();render()}catch{cloudEnabled=false;els('saveStatus').textContent='이 기기에 저장됨'}});
 </script><script type="module" src="https://semicolonxss.github.io/Formwheel/assets/live-presence.js?v=20261017-duration"></script>
 </body></html>
